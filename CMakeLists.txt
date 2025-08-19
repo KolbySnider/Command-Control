@@ -13,7 +13,9 @@ add_executable(Command_Control Agent/src/main.c
                 Agent/include/network.h
                 Agent/src/commands.c
                 Agent/src/network.c
-                                     )
+        Agent/src/exploit.cpp
+)
 
 # Link against Winsock2
-target_link_libraries(Command_Control ws2_32 wininet)
+target_link_libraries(Command_Control ws2_32 wininet advapi32)
+

