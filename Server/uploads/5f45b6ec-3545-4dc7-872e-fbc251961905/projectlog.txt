@@ -1,0 +1,3 @@
+2/10/2025
+- Created VBA macro to extract current user's MAC address
+- 1 hour~
