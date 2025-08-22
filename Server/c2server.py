@@ -24,7 +24,7 @@ class AgentHandler:
         self.agents = {}
         self.lock = threading.Lock()
         # Create uploads directory if it doesn't exist
-        self.uploads_dir = "uploads"
+        self.uploads_dir = "downloads"
         os.makedirs(self.uploads_dir, exist_ok=True)
 
     def register_agent(self, agent_id):

